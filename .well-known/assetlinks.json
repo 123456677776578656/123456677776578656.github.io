@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ch.wasgehtheute.app",
+      "sha256_cert_fingerprints": [
+        "94:86:38:5A:7F:A8:D9:7B:59:31:BA:D3:D4:2B:C4:48:03:DD:B2:62:72:92:2B:89:6D:04:C7:8E:17:CB:B9:1F"
+      ]
+    }
+  }
+]
