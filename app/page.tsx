@@ -1,9 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, Code2, Copy, Download, Eye, EyeOff, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Monitor, Sparkles, Square, Trash2, User, X } from "lucide-react";
+import { ArrowUp, Check, Code2, Copy, Download, Eye, EyeOff, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Monitor, Plus, Save, Sparkles, Square, Trash2, User, X } from "lucide-react";
 
 type Message = { id: string; role: "user" | "assistant"; content: string };
+type Project = { id: string; name: string; prompt: string; html: string; updatedAt: number };
 const STARTERS = ["Erkläre mir ein schwieriges Thema einfach", "Hilf mir, eine professionelle E-Mail zu schreiben", "Erstelle einen Plan für mein nächstes Projekt"];
 
 declare global { interface Document { modelContext?: { registerTool: (tool: Record<string, unknown>, options?: { signal: AbortSignal }) => void | Promise<void> }; } }
@@ -16,6 +17,7 @@ function isMessage(value: unknown): value is Message {
   const item = value as Partial<Message>;
   return typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.content === "string" && item.content.length <= 8000;
 }
+function isProject(value: unknown): value is Project { if (!value || typeof value !== "object") return false; const p = value as Partial<Project>; return typeof p.id === "string" && typeof p.name === "string" && typeof p.prompt === "string" && typeof p.html === "string" && typeof p.updatedAt === "number"; }
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -33,6 +35,11 @@ export default function Home() {
   const [builderPrompt, setBuilderPrompt] = useState("");
   const [generatedHtml, setGeneratedHtml] = useState("");
   const [builderView, setBuilderView] = useState<"preview" | "code">("preview");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState("Neue Webseite");
+  const [memories, setMemories] = useState<string[]>([]);
+  const [memoryDraft, setMemoryDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -44,11 +51,17 @@ export default function Home() {
       if (!active) return;
       const saved = localStorage.getItem("ki-chat-messages");
       if (saved) { try { const parsed: unknown = JSON.parse(saved); if (Array.isArray(parsed)) setMessages(parsed.filter(isMessage).slice(-30)); } catch {} }
+      const savedProjects = localStorage.getItem("ki-chat-projects");
+      if (savedProjects) { try { const parsed: unknown = JSON.parse(savedProjects); if (Array.isArray(parsed)) setProjects(parsed.filter(isProject).slice(0, 30)); } catch {} }
+      const savedMemories = localStorage.getItem("ki-chat-memory");
+      if (savedMemories) { try { const parsed: unknown = JSON.parse(savedMemories); if (Array.isArray(parsed)) setMemories(parsed.filter((item): item is string => typeof item === "string").slice(0, 20)); } catch {} }
       setReady(true);
     });
     return () => { active = false; };
   }, []);
   useEffect(() => { messagesRef.current = messages; if (ready) localStorage.setItem("ki-chat-messages", JSON.stringify(messages)); }, [messages, ready]);
+  useEffect(() => { if (ready) localStorage.setItem("ki-chat-projects", JSON.stringify(projects)); }, [projects, ready]);
+  useEffect(() => { if (ready) localStorage.setItem("ki-chat-memory", JSON.stringify(memories)); }, [memories, ready]);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
@@ -62,7 +75,7 @@ export default function Home() {
     setMessages(next); setPrompt(""); setError(""); setLoading(true);
     const controller = new AbortController(); abortRef.current = controller;
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey, messages: next.map(({ role, content }) => ({ role, content })) }), signal: controller.signal });
+      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey, memory: memories.join("\n"), messages: next.map(({ role, content }) => ({ role, content })) }), signal: controller.signal });
       const data: unknown = await response.json();
       const payload = data && typeof data === "object" ? data as { answer?: unknown; error?: unknown } : {};
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Die Anfrage ist fehlgeschlagen.");
@@ -75,7 +88,7 @@ export default function Home() {
       setError(cause instanceof Error ? cause.message : "Unbekannter Fehler");
       throw cause;
     } finally { setLoading(false); abortRef.current = null; textareaRef.current?.focus(); }
-  }, [apiKey, loading]);
+  }, [apiKey, loading, memories]);
 
   useEffect(() => {
     if (!document.modelContext?.registerTool) return;
@@ -89,15 +102,20 @@ export default function Home() {
   function disconnectKey() { abortRef.current?.abort(); setApiKey(""); setKeyDraft(""); setError(""); setKeyDialog(true); setSidebar(false); }
   function submit(event: FormEvent) { event.preventDefault(); void ask(prompt).catch(() => undefined); }
   async function copyMessage(message: Message) { await navigator.clipboard.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1600); }
-  async function buildWebsite(event: FormEvent) { event.preventDefault(); const clean = builderPrompt.trim(); if (!clean || loading) return; if (!apiKey) { setKeyDialog(true); return; } setError(""); setLoading(true); try { const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey, mode: "website", messages: [{ role: "user", content: clean }] }) }); const data = await response.json() as { answer?: string; error?: string }; if (!response.ok || !data.answer) throw new Error(data.error || "Die Webseite konnte nicht erstellt werden."); setGeneratedHtml(data.answer); setBuilderView("preview"); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unbekannter Fehler"); } finally { setLoading(false); } }
+  async function buildWebsite(event: FormEvent) { event.preventDefault(); const clean = builderPrompt.trim(); if (!clean || loading) return; if (!apiKey) { setKeyDialog(true); return; } setError(""); setLoading(true); try { const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey, mode: "website", memory: memories.join("\n"), messages: [{ role: "user", content: clean }] }) }); const data = await response.json() as { answer?: string; error?: string }; if (!response.ok || !data.answer) throw new Error(data.error || "Die Webseite konnte nicht erstellt werden."); setGeneratedHtml(data.answer); setBuilderView("preview"); saveProject(data.answer, clean); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unbekannter Fehler"); } finally { setLoading(false); } }
   function downloadWebsite() { if (!generatedHtml) return; const url = URL.createObjectURL(new Blob([generatedHtml], { type: "text/html" })); const link = document.createElement("a"); link.href = url; link.download = "meine-webseite.html"; link.click(); URL.revokeObjectURL(url); }
+  function saveProject(html = generatedHtml, promptText = builderPrompt) { if (!html) return; const id = currentProjectId || `${Date.now()}-${Math.random().toString(36).slice(2)}`; const fallbackName = promptText.trim().split(/\s+/).slice(0, 5).join(" ") || "Neue Webseite"; const project: Project = { id, name: projectName === "Neue Webseite" ? fallbackName : projectName.trim() || fallbackName, prompt: promptText, html, updatedAt: Date.now() }; setCurrentProjectId(id); setProjectName(project.name); setProjects((items) => [project, ...items.filter((item) => item.id !== id)].slice(0, 30)); }
+  function newProject() { setMode("builder"); setCurrentProjectId(null); setProjectName("Neue Webseite"); setBuilderPrompt(""); setGeneratedHtml(""); setError(""); setSidebar(false); }
+  function openProject(project: Project) { setMode("builder"); setCurrentProjectId(project.id); setProjectName(project.name); setBuilderPrompt(project.prompt); setGeneratedHtml(project.html); setBuilderView("preview"); setSidebar(false); }
+  function deleteProject(id: string) { setProjects((items) => items.filter((item) => item.id !== id)); if (currentProjectId === id) newProject(); }
+  function addMemory(event: FormEvent) { event.preventDefault(); const clean = memoryDraft.trim(); if (!clean) return; setMemories((items) => [clean, ...items.filter((item) => item !== clean)].slice(0, 20)); setMemoryDraft(""); }
 
   return <main className="app-shell">
     <aside className={`sidebar ${sidebar ? "sidebar-open" : ""}`} aria-label="Seitennavigation">
       <div className="brand"><span className="brand-mark"><Sparkles size={19}/></span><span><strong>KI-Chat</strong><small>Persönlicher Assistent</small></span></div>
       <button className="new-chat" onClick={clearChat}><MessageSquarePlus size={18}/>Neuer Chat</button>
       <div className="mode-switch" aria-label="Arbeitsmodus"><button className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}><Sparkles size={16}/>KI-Chat</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}><Code2 size={16}/>Codex Studio</button></div>
-      <div className="sidebar-copy"><span className="eyebrow">DEIN ARBEITSBEREICH</span><p>Gedanken sortieren, Texte verbessern und Ideen weiterentwickeln.</p></div>
+      <div className="project-nav"><div className="project-nav-head"><span className="eyebrow">MEINE PROJEKTE</span><button onClick={newProject} aria-label="Neues Projekt"><Plus size={15}/></button></div>{projects.length ? projects.map((project) => <div className={`project-item ${currentProjectId === project.id ? "active" : ""}`} key={project.id}><button onClick={() => openProject(project)}><span>{project.name}</span><small>{new Date(project.updatedAt).toLocaleDateString("de-DE")}</small></button><button onClick={() => deleteProject(project.id)} aria-label={`${project.name} löschen`}><X size={13}/></button></div>) : <p className="project-empty">Deine erstellten Seiten erscheinen hier.</p>}</div>
       <div className={`sidebar-foot ${apiKey ? "connected" : ""}`}><span className="privacy-dot"/><span>{apiKey ? "Schlüssel für diesen Tab aktiv" : "Schlüssel nicht verbunden"}</span></div>
       <button className="key-change" onClick={() => setKeyDialog(true)}><KeyRound size={15}/>{apiKey ? "Schlüssel wechseln" : "Schlüssel verbinden"}</button>
       <button className="sidebar-close" onClick={() => setSidebar(false)} aria-label="Menü schließen"><X size={20}/></button>
@@ -137,7 +155,9 @@ export default function Home() {
         <p className="composer-hint">KI kann Fehler machen. Prüfe wichtige Informationen.</p>
       </footer></> : <section className="builder-shell">
         <div className="builder-intro"><span className="welcome-kicker">DEIN WEBSEITEN-BUILDER</span><h2>Beschreiben. Erstellen.<br/>Sofort ansehen.</h2><p>Schreibe, welche Seite du brauchst. Codex Studio erzeugt daraus eine komplette HTML-Webseite.</p></div>
+        <div className="builder-meta"><label>Projektname<input value={projectName} onChange={(event) => setProjectName(event.target.value)} maxLength={60}/></label><button onClick={() => saveProject()} disabled={!generatedHtml}><Save size={16}/>Projekt speichern</button></div>
         <form className="builder-form" onSubmit={buildWebsite}><textarea value={builderPrompt} onChange={(event) => setBuilderPrompt(event.target.value)} placeholder="Zum Beispiel: Erstelle eine moderne Webseite für mein Café mit Speisekarte, Öffnungszeiten und Kontakt …" maxLength={4000}/><button disabled={!builderPrompt.trim() || loading}>{loading ? <Square size={16}/> : <Sparkles size={17}/>} {loading ? "Wird erstellt …" : "Webseite erstellen"}</button></form>
+        <section className="memory-card"><div><span className="welcome-kicker">GEDÄCHTNIS</span><h3>Was soll sich Codex merken?</h3><p>Zum Beispiel deine Lieblingsfarben, Branche, gewünschte Tonalität oder immer benötigte Bereiche.</p></div><form onSubmit={addMemory}><input value={memoryDraft} onChange={(event) => setMemoryDraft(event.target.value)} placeholder="Meine Markenfarbe ist Dunkelblau …" maxLength={300}/><button disabled={!memoryDraft.trim()}><Plus size={16}/>Merken</button></form>{memories.length > 0 && <div className="memory-list">{memories.map((memory) => <span key={memory}>{memory}<button onClick={() => setMemories((items) => items.filter((item) => item !== memory))} aria-label="Erinnerung löschen"><X size={12}/></button></span>)}</div>}</section>
         {error && <div className="error-banner builder-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Fehler schließen"><X size={16}/></button></div>}
         {generatedHtml && <div className="builder-result"><div className="builder-toolbar"><div><button className={builderView === "preview" ? "active" : ""} onClick={() => setBuilderView("preview")}><Monitor size={15}/>Vorschau</button><button className={builderView === "code" ? "active" : ""} onClick={() => setBuilderView("code")}><Code2 size={15}/>Code</button></div><div><button onClick={() => void navigator.clipboard.writeText(generatedHtml)}><Copy size={15}/>Kopieren</button><button onClick={downloadWebsite}><Download size={15}/>HTML laden</button></div></div>{builderView === "preview" ? <iframe title="Vorschau der erstellten Webseite" sandbox="" srcDoc={generatedHtml}/> : <pre><code>{generatedHtml}</code></pre>}</div>}
       </section>}
