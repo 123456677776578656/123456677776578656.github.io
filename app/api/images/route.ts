@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { GEMINI_IMAGE_MODEL, IMAGE_RATIOS, IMAGE_STYLES } from "../../../lib/ai-config";
+import { isAttachment, MAX_FILE_BYTES } from "../../../lib/workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_BODY_BYTES = 48_000;
+const MAX_BODY_BYTES = 3_000_000;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function matchesImage(image: Buffer, mimeType: string) {
+  if (mimeType === "image/png") return image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mimeType === "image/jpeg") return image[0] === 255 && image[1] === 216 && image[2] === 255;
+  return mimeType === "image/webp" && image.toString("ascii", 0, 4) === "RIFF" && image.toString("ascii", 8, 12) === "WEBP";
+}
 
 function error(message: string, status: number, code: string) {
   return NextResponse.json({ error: message, code }, { status, headers: { "Cache-Control": "no-store" } });
@@ -58,6 +65,14 @@ export async function POST(request: Request) {
     catch { return error("Die Anfrage konnte nicht gelesen werden.", 400, "INVALID_REQUEST"); }
     if (!body || typeof body !== "object" || Array.isArray(body)) return error("Bitte beschreibe dein Bild.", 400, "INVALID_REQUEST");
     const input = body as Record<string, unknown>;
+    if (!input.reference && byteLength > 48_000) return error("Die Bildbeschreibung ist zu groß.", 413, "REQUEST_TOO_LARGE");
+    let reference: { inlineData: { mimeType: string; data: string } } | undefined;
+    if (input.reference !== undefined) {
+      if (!isAttachment(input.reference) || !IMAGE_TYPES.has(input.reference.mimeType)) return error("Bitte lade ein PNG-, JPEG- oder WebP-Bild mit höchstens 2 MB hoch.", 400, "INVALID_REFERENCE");
+      const original = Buffer.from(input.reference.data, "base64");
+      if (original.length !== input.reference.size || original.length > MAX_FILE_BYTES || !matchesImage(original, input.reference.mimeType)) return error("Das hochgeladene Bildformat ist ungültig.", 400, "INVALID_REFERENCE");
+      reference = { inlineData: { mimeType: input.reference.mimeType, data: input.reference.data } };
+    }
     const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
     if (!prompt || prompt.length > 4000) return error("Beschreibe dein Bild mit höchstens 4.000 Zeichen.", 400, "INVALID_PROMPT");
     const aspectRatio = input.aspectRatio ?? "1:1";
@@ -73,7 +88,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: `Erstelle genau ein fertiges Bild. ${style.instruction}${memory ? `\nGemerkte Gestaltungswünsche:\n${memory}` : ""}\n\nBildbeschreibung:\n${prompt}` }] }],
+        contents: [{ role: "user", parts: [...(reference ? [reference] : []), { text: `${reference ? "Bearbeite das bereitgestellte Bild entsprechend der Beschreibung. Erhalte alle nicht ausdrücklich zu ändernden Inhalte. Gib genau ein fertiges Bild zurück." : "Erstelle genau ein fertiges Bild."} ${style.instruction}${memory ? `\nGemerkte Gestaltungswünsche:\n${memory}` : ""}\n\n${reference ? "Gewünschte Änderung" : "Bildbeschreibung"}:\n${prompt}` }] }],
         generationConfig: {
           responseModalities: ["IMAGE"],
           responseFormat: { image: { aspectRatio, imageSize: "1K" } },
@@ -100,10 +115,7 @@ export async function POST(request: Request) {
     const encoded = part?.inlineData?.data || part?.inline_data?.data || "";
     if (!IMAGE_TYPES.has(mimeType) || !encoded || encoded.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return error("Google hat kein verwendbares Bild geliefert. Bitte ändere die Beschreibung und versuche es erneut.", 502, "NO_IMAGE_RETURNED");
     const image = Buffer.from(encoded, "base64");
-    const png = image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    const jpeg = image[0] === 255 && image[1] === 216 && image[2] === 255;
-    const webp = image.toString("ascii", 0, 4) === "RIFF" && image.toString("ascii", 8, 12) === "WEBP";
-    if (image.byteLength > MAX_IMAGE_BYTES || !(mimeType === "image/png" ? png : mimeType === "image/jpeg" ? jpeg : webp)) return error("Das zurückgegebene Bildformat ist ungültig.", 502, "INVALID_IMAGE");
+    if (image.byteLength > MAX_IMAGE_BYTES || !matchesImage(image, mimeType)) return error("Das zurückgegebene Bildformat ist ungültig.", 502, "INVALID_IMAGE");
     return new Response(new Uint8Array(image), {
       headers: { "Content-Type": mimeType, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Image-Model": GEMINI_IMAGE_MODEL },
     });

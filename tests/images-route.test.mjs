@@ -45,6 +45,25 @@ test("image endpoint uses the server key, supported generation settings, and ret
   assert.equal(JSON.stringify(sent.body).includes("untrusted-browser-key"), false);
 });
 
+test("image editing forwards a validated original image and still requires cost consent", async () => {
+  const reference = { id: "original", name: "foto.png", mimeType: "image/png", data: png, size: Buffer.from(png, "base64").length };
+  let calls = 0; let sent;
+  const route = loadRoute(routePath, async (_url, options) => { calls++; sent = JSON.parse(options.body); return generated(); });
+  assert.equal((await route.POST(request({ ...valid, reference, billingAcknowledged: false }))).status, 428);
+  assert.equal(calls, 0);
+  const response = await route.POST(request({ ...valid, prompt: "Mache den Hintergrund blau", reference }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(sent.contents[0].parts[0].inlineData, { mimeType: "image/png", data: png });
+  assert.match(sent.contents[0].parts[1].text, /Bearbeite das bereitgestellte Bild/);
+  assert.match(sent.contents[0].parts[1].text, /Hintergrund blau/);
+  assert.equal(calls, 1);
+  for (const invalid of [{ ...reference, mimeType: "image/jpeg" }, { ...reference, size: 1 }, { ...reference, data: "cGxhaW4=", size: 5 }, { ...reference, mimeType: "application/pdf" }]) {
+    const bad = await route.POST(request({ ...valid, reference: invalid }));
+    assert.equal(bad.status, 400); assert.equal((await bad.json()).code, "INVALID_REFERENCE");
+  }
+  assert.equal(calls, 1);
+});
+
 test("image endpoint rejects missing server keys, foreign origins and malformed or oversized inputs", async () => {
   let calls = 0;
   const upstream = async () => { calls++; return generated(); };

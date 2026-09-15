@@ -2,9 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element -- Generated images use local Blob URLs, not a remote image loader. */
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Check, ImagePlus, LoaderCircle, RotateCcw, Sparkles, Square, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Check, ImagePlus, LoaderCircle, Pencil, RotateCcw, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
 import { IMAGE_RATIOS, IMAGE_STYLES, type ImageRatio, type ImageStyle } from "../lib/ai-config";
 import { listSavedImages, removeImage, saveImage, type SavedImage } from "../lib/image-gallery";
+import { readAttachment } from "../lib/files";
+import type { Attachment } from "../lib/workspace";
 
 type GalleryImage = SavedImage & { url: string; saved: boolean };
 const RATIO_NAMES: Record<ImageRatio, string> = { "1:1": "Quadrat", "16:9": "Querformat", "9:16": "Hochformat" };
@@ -32,6 +34,9 @@ export default function ImageStudio({ active, configured, memories }: { active: 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [storageNotice, setStorageNotice] = useState("");
+  const [reference, setReference] = useState<Attachment | null>(null);
+  const [reading, setReading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
   const urlsRef = useRef(new Set<string>());
@@ -66,14 +71,14 @@ export default function ImageStudio({ active, configured, memories }: { active: 
   async function generate(event: FormEvent) {
     event.preventDefault();
     const description = prompt.trim();
-    if (!description || !configured || !billingAcknowledged || controllerRef.current) return;
+    if (!description || !configured || !billingAcknowledged || reading || controllerRef.current) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     setLoading(true); setError(""); setNotice("");
     try {
       const response = await fetch("/api/images", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: description, style, aspectRatio, billingAcknowledged, memory: useMemory ? memories.join("\n") : "" }),
+        body: JSON.stringify({ prompt: description, style, aspectRatio, billingAcknowledged, memory: useMemory ? memories.join("\n") : "", ...(reference ? { reference } : {}) }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -118,8 +123,23 @@ export default function ImageStudio({ active, configured, memories }: { active: 
   }
 
   function reuse(image: GalleryImage) {
+    setReference(null);
     setPrompt(image.prompt); setStyle(image.style); setAspectRatio(image.aspectRatio);
     promptRef.current?.focus();
+  }
+
+  async function chooseReference(file?: File) {
+    if (!file || loading || reading) return;
+    setReading(true); setError("");
+    try {
+      const attachment = await readAttachment(file);
+      if (!["image/png", "image/jpeg", "image/webp"].includes(attachment.mimeType)) throw new Error("Bitte wähle ein PNG-, JPEG- oder WebP-Bild.");
+      if (!mountedRef.current) return;
+      setReference(attachment); setStyle("auto"); setPrompt("");
+      setNotice("Bild ausgewählt. Beschreibe jetzt, was sich ändern soll. Das Original bleibt erhalten.");
+      promptRef.current?.focus();
+    } catch (cause) { if (mountedRef.current) setError(cause instanceof Error ? cause.message : "Das Bild konnte nicht geladen werden."); }
+    finally { if (mountedRef.current) setReading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
   return <section className="image-studio" hidden={!active} aria-label="Bilderstudio">
@@ -127,15 +147,16 @@ export default function ImageStudio({ active, configured, memories }: { active: 
       <div className="image-intro"><div><span className="welcome-kicker">DEINE IDEEN. IN BILDERN.</span><h2>Mach deine Vorstellung sichtbar.</h2><p>Beschreibe dein Motiv. Wähle einen Stil. Erschaffe etwas Eigenes.</p></div><span className="image-resolution">1K <span>Auflösung</span></span></div>
       <div className="image-workspace">
         <form className="image-form" onSubmit={generate}>
-          <div className="image-label-line"><label htmlFor="image-prompt">Was möchtest du sehen?</label><span>{prompt.length}/4000</span></div>
-          <textarea ref={promptRef} id="image-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ein Haus am See im sanften Morgenlicht, mit Bergen im Hintergrund …" maxLength={4000} rows={5} required disabled={loading}/>
-          <div className="image-ideas" aria-label="Ideen für dein Bild">{IDEAS.map((idea) => <button type="button" key={idea.label} onClick={() => { setPrompt(idea.prompt); promptRef.current?.focus(); }} disabled={loading}>{idea.label}</button>)}</div>
+          <div className="image-reference"><button type="button" onClick={() => fileRef.current?.click()} disabled={loading || reading}><Upload size={16}/>{reading ? "Bild wird geladen …" : reference ? "Anderes Bild wählen" : "Eigenes Bild bearbeiten"}</button><input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.webp" hidden aria-label="Bild zum Bearbeiten hochladen" onChange={(event) => void chooseReference(event.target.files?.[0])}/>{reference ? <div className="image-reference-preview"><img src={`data:${reference.mimeType};base64,${reference.data}`} alt="Dein Originalbild"/><span>{reference.name}</span><button type="button" aria-label="Originalbild entfernen" disabled={loading || reading} onClick={() => setReference(null)}><X size={16}/></button></div> : null}<small>PNG, JPEG oder WebP · bis 2 MB. Erst beim Erstellen wird das Bild an Google gesendet.</small></div>
+          <div className="image-label-line"><label htmlFor="image-prompt">{reference ? "Was soll sich am Bild ändern?" : "Was möchtest du sehen?"}</label><span>{prompt.length}/4000</span></div>
+          <textarea ref={promptRef} id="image-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={reference ? "Ändere den Hintergrund zu einem Sonnenuntergang. Erhalte das Motiv im Vordergrund …" : "Ein Haus am See im sanften Morgenlicht, mit Bergen im Hintergrund …"} maxLength={4000} rows={5} required disabled={loading || reading}/>
+          {!reference && <div className="image-ideas" aria-label="Ideen für dein Bild">{IDEAS.map((idea) => <button type="button" key={idea.label} onClick={() => { setPrompt(idea.prompt); promptRef.current?.focus(); }} disabled={loading || reading}>{idea.label}</button>)}</div>}
           <fieldset disabled={loading}><legend>Bildstil</legend><div className="image-style-options">{IMAGE_STYLES.map((item) => <button type="button" key={item.id} aria-pressed={style === item.id} onClick={() => setStyle(item.id)}>{style === item.id && <Check size={13}/>} {item.label}</button>)}</div></fieldset>
           <fieldset disabled={loading}><legend>Format</legend><div className="image-ratio-options">{IMAGE_RATIOS.map((ratio) => <button type="button" key={ratio} aria-pressed={aspectRatio === ratio} onClick={() => setAspectRatio(ratio)}><span className={`ratio-shape ratio-${ratio.replace(":", "-")}`} aria-hidden="true"/><span>{RATIO_NAMES[ratio]}<small>{ratio}</small></span></button>)}</div></fieldset>
           {memories.length > 0 && <label className="image-checkbox"><input type="checkbox" checked={useMemory} onChange={(event) => setUseMemory(event.target.checked)} disabled={loading}/><span>Meine gemerkten Gestaltungswünsche berücksichtigen</span></label>}
-          <div className="image-cost"><strong>Google-Bilder sind kostenpflichtig</strong><p>Ca. 0,034 US-Dollar pro Bild, zuzüglich Textkosten. Dafür benötigt dein Google-Projekt eine aktive API-Abrechnung. <a href="https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-lite-image" target="_blank" rel="noreferrer">Preise ansehen</a></p><label className="image-checkbox"><input type="checkbox" checked={billingAcknowledged} onChange={(event) => setBillingAcknowledged(event.target.checked)} disabled={loading}/><span>Ich möchte kostenpflichtige Bilder erstellen.</span></label></div>
+          <div className="image-cost"><strong>Google-Bilder sind kostenpflichtig</strong><p>Ca. 0,034 US-Dollar pro erstelltem Bild, zuzüglich Text- und gegebenenfalls Eingabebildkosten. Dafür benötigt dein Google-Projekt eine aktive API-Abrechnung. <a href="https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-lite-image" target="_blank" rel="noreferrer">Preise ansehen</a></p><label className="image-checkbox"><input type="checkbox" checked={billingAcknowledged} onChange={(event) => setBillingAcknowledged(event.target.checked)} disabled={loading}/><span>Ich möchte kostenpflichtige Bilder erstellen.</span></label></div>
           {!configured && <p className="image-setup">Bilder sind verfügbar, sobald der Gemini-Schlüssel auf dem Server eingerichtet ist.</p>}
-          <button className="image-generate" disabled={loading || !prompt.trim() || !configured || !billingAcknowledged || !galleryReady}>{loading ? <LoaderCircle size={18} className="image-spinner"/> : <Sparkles size={18}/>} {loading ? "Dein Bild entsteht …" : "Bild erstellen"}</button>
+          <button className="image-generate" disabled={loading || reading || !prompt.trim() || !configured || !billingAcknowledged || !galleryReady}>{loading ? <LoaderCircle size={18} className="image-spinner"/> : <Sparkles size={18}/>} {loading ? "Dein Bild entsteht …" : reference ? "Bild bearbeiten" : "Bild erstellen"}</button>
           {loading && <button type="button" className="image-cancel" onClick={() => controllerRef.current?.abort()}><Square size={12}/>Anfrage abbrechen</button>}
           <p className="image-key-note">Dein vorhandener Gemini-Schlüssel wird sicher auf dem Server verwendet.</p>
           {error && <div className="image-error" role="alert"><p>{error}</p><a href="https://aistudio.google.com/" target="_blank" rel="noreferrer">Google AI Studio öffnen</a></div>}
@@ -146,7 +167,7 @@ export default function ImageStudio({ active, configured, memories }: { active: 
             {selected ? <img src={selected.url} alt={selected.prompt}/> : <div className="image-empty"><div className="image-empty-art" aria-hidden="true"><span/><i/><b/></div><ImagePlus size={26}/><h3>Hier beginnt deine Bildwelt.</h3><p>Dein erstelltes Bild erscheint hier.</p></div>}
             {loading && <div className="image-loading-overlay" role="status"><LoaderCircle size={28} className="image-spinner"/><strong>Aus Worten wird ein Bild</strong><span>Das kann einen Moment dauern.</span></div>}
           </div>
-          {selected ? <div className="image-result-details"><p className="image-result-prompt">{selected.prompt}</p><div className="image-result-meta"><span>{selected.saved ? <><Check size={13}/>Auf diesem Gerät gespeichert</> : "Noch nicht dauerhaft gespeichert"}</span><span>{new Date(selected.createdAt).toLocaleDateString("de-DE")}</span></div><div className="image-result-actions"><a className="image-download" href={selected.url} download={filename(selected)}><ArrowDownToLine size={16}/>Bild herunterladen</a><button type="button" onClick={() => reuse(selected)} disabled={loading} title="Beschreibung und Einstellungen übernehmen"><RotateCcw size={15}/>Weiter gestalten</button></div></div> : <p className="image-preview-note">Deine Bilder werden automatisch in deiner Galerie auf diesem Gerät abgelegt.</p>}
+          {selected ? <div className="image-result-details"><p className="image-result-prompt">{selected.prompt}</p><div className="image-result-meta"><span>{selected.saved ? <><Check size={13}/>Auf diesem Gerät gespeichert</> : "Noch nicht dauerhaft gespeichert"}</span><span>{new Date(selected.createdAt).toLocaleDateString("de-DE")}</span></div><div className="image-result-actions"><a className="image-download" href={selected.url} download={filename(selected)}><ArrowDownToLine size={16}/>Bild herunterladen</a><button type="button" onClick={() => void chooseReference(new File([selected.blob], filename(selected), { type: selected.blob.type }))} disabled={loading || reading}><Pencil size={15}/>Dieses Bild bearbeiten</button><button type="button" onClick={() => reuse(selected)} disabled={loading || reading} title="Beschreibung und Einstellungen übernehmen"><RotateCcw size={15}/>Beschreibung nutzen</button></div></div> : <p className="image-preview-note">Deine Bilder werden automatisch in deiner Galerie auf diesem Gerät abgelegt.</p>}
         </div>
       </div>
       <p className="image-notice" role="status">{notice}</p>
