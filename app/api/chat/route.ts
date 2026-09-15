@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       : "Du bist ein hilfreicher, präziser Assistent. Antworte standardmäßig auf Deutsch, klar gegliedert und ohne unnötige Wiederholungen.";
 
     if (geminiKey) {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", {
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
         method: "POST",
         headers: { "x-goog-api-key": geminiKey, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       });
       const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
       if (!response.ok) {
-        const error = response.status === 401 || response.status === 403 ? "Der Gemini-Schlüssel wurde nicht akzeptiert. Bitte überprüfe ihn in Vercel." : response.status === 429 ? "Das kostenlose Gemini-Limit ist erreicht. Bitte versuche es später erneut." : "Die KI konnte gerade nicht antworten. Bitte versuche es erneut.";
+        const error = response.status === 400 ? "Gemini hat die Anfrage abgelehnt. Bitte starte einen neuen Chat und versuche es erneut." : response.status === 401 || response.status === 403 ? "Der Gemini-Schlüssel wurde nicht akzeptiert. Bitte überprüfe ihn in Vercel." : response.status === 429 ? "Das kostenlose Gemini-Limit ist erreicht. Bitte versuche es später erneut." : "Die KI konnte gerade nicht antworten. Bitte versuche es erneut.";
         return json({ error }, response.status === 429 ? 429 : response.status === 401 || response.status === 403 ? 401 : 502);
       }
       let answer = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();

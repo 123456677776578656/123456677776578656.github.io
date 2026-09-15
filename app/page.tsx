@@ -139,7 +139,7 @@ export default function Home() {
       <header className="topbar">
         <button className="icon-button mobile-menu" onClick={() => setSidebar(true)} aria-label="Menü öffnen"><Menu size={20}/></button>
         <div><h1>{mode === "chat" ? "Neuer Chat" : "Codex Studio"}</h1><p><span className={`status-dot ${serverReady || apiKey ? "" : "offline"}`}/> {serverReady || apiKey ? (mode === "chat" ? "Bereit für deine Frage" : "Bereit zum Erstellen") : "API-Schlüssel erforderlich"}</p></div>
-        <div className="top-actions"><span className="model-pill"><Sparkles size={14}/> {serverReady ? "Gemini 3.8 Flash" : "GPT-4o"}</span>{messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
+        <div className="top-actions"><span className="model-pill"><Sparkles size={14}/> {serverReady ? "Gemini 2.5 Flash" : "GPT-4o"}</span>{messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
       </header>
 
       {mode === "chat" ? <><div className="conversation" aria-live="polite">
