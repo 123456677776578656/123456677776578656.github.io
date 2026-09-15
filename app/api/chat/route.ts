@@ -37,9 +37,11 @@ export async function POST(request: Request) {
         }),
         signal: AbortSignal.timeout(45_000),
       });
-      const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string; status?: string } };
       if (!response.ok) {
-        const error = response.status === 400 ? "Gemini hat die Anfrage abgelehnt. Bitte starte einen neuen Chat und versuche es erneut." : response.status === 401 || response.status === 403 ? "Der Gemini-Schlüssel wurde nicht akzeptiert. Bitte überprüfe ihn in Vercel." : response.status === 429 ? "Das kostenlose Gemini-Limit ist erreicht. Bitte versuche es später erneut." : "Die KI konnte gerade nicht antworten. Bitte versuche es erneut.";
+        const detail = typeof data.error?.message === "string" ? data.error.message.replace(/AIza[\w-]+/g, "[Schlüssel verborgen]").slice(0, 280) : "";
+        console.error("[api/chat] Gemini request failed", { status: response.status, providerStatus: data.error?.status, detail });
+        const error = response.status === 400 ? `Gemini hat die Anfrage abgelehnt.${detail ? ` ${detail}` : ""}` : response.status === 401 || response.status === 403 ? `Der Gemini-Zugriff wurde abgelehnt.${detail ? ` ${detail}` : " Bitte überprüfe den Schlüssel in Vercel."}` : response.status === 429 ? `Das kostenlose Gemini-Limit ist erreicht.${detail ? ` ${detail}` : " Bitte versuche es später erneut."}` : `Die KI konnte gerade nicht antworten (Fehler ${response.status}).${detail ? ` ${detail}` : ""}`;
         return json({ error }, response.status === 429 ? 429 : response.status === 401 || response.status === 403 ? 401 : 502);
       }
       let answer = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
