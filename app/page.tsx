@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, Copy, Eye, EyeOff, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Sparkles, Square, Trash2, User, X } from "lucide-react";
+import { ArrowUp, Check, Code2, Copy, Download, Eye, EyeOff, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Monitor, Sparkles, Square, Trash2, User, X } from "lucide-react";
 
 type Message = { id: string; role: "user" | "assistant"; content: string };
 const STARTERS = ["Erkläre mir ein schwieriges Thema einfach", "Hilf mir, eine professionelle E-Mail zu schreiben", "Erstelle einen Plan für mein nächstes Projekt"];
@@ -29,6 +29,10 @@ export default function Home() {
   const [keyDraft, setKeyDraft] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [keyDialog, setKeyDialog] = useState(true);
+  const [mode, setMode] = useState<"chat" | "builder">("chat");
+  const [builderPrompt, setBuilderPrompt] = useState("");
+  const [generatedHtml, setGeneratedHtml] = useState("");
+  const [builderView, setBuilderView] = useState<"preview" | "code">("preview");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -85,11 +89,14 @@ export default function Home() {
   function disconnectKey() { abortRef.current?.abort(); setApiKey(""); setKeyDraft(""); setError(""); setKeyDialog(true); setSidebar(false); }
   function submit(event: FormEvent) { event.preventDefault(); void ask(prompt).catch(() => undefined); }
   async function copyMessage(message: Message) { await navigator.clipboard.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1600); }
+  async function buildWebsite(event: FormEvent) { event.preventDefault(); const clean = builderPrompt.trim(); if (!clean || loading) return; if (!apiKey) { setKeyDialog(true); return; } setError(""); setLoading(true); try { const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey, mode: "website", messages: [{ role: "user", content: clean }] }) }); const data = await response.json() as { answer?: string; error?: string }; if (!response.ok || !data.answer) throw new Error(data.error || "Die Webseite konnte nicht erstellt werden."); setGeneratedHtml(data.answer); setBuilderView("preview"); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unbekannter Fehler"); } finally { setLoading(false); } }
+  function downloadWebsite() { if (!generatedHtml) return; const url = URL.createObjectURL(new Blob([generatedHtml], { type: "text/html" })); const link = document.createElement("a"); link.href = url; link.download = "meine-webseite.html"; link.click(); URL.revokeObjectURL(url); }
 
   return <main className="app-shell">
     <aside className={`sidebar ${sidebar ? "sidebar-open" : ""}`} aria-label="Seitennavigation">
       <div className="brand"><span className="brand-mark"><Sparkles size={19}/></span><span><strong>KI-Chat</strong><small>Persönlicher Assistent</small></span></div>
       <button className="new-chat" onClick={clearChat}><MessageSquarePlus size={18}/>Neuer Chat</button>
+      <div className="mode-switch" aria-label="Arbeitsmodus"><button className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}><Sparkles size={16}/>KI-Chat</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}><Code2 size={16}/>Codex Studio</button></div>
       <div className="sidebar-copy"><span className="eyebrow">DEIN ARBEITSBEREICH</span><p>Gedanken sortieren, Texte verbessern und Ideen weiterentwickeln.</p></div>
       <div className={`sidebar-foot ${apiKey ? "connected" : ""}`}><span className="privacy-dot"/><span>{apiKey ? "Schlüssel für diesen Tab aktiv" : "Schlüssel nicht verbunden"}</span></div>
       <button className="key-change" onClick={() => setKeyDialog(true)}><KeyRound size={15}/>{apiKey ? "Schlüssel wechseln" : "Schlüssel verbinden"}</button>
@@ -100,11 +107,11 @@ export default function Home() {
     <section className="chat-shell">
       <header className="topbar">
         <button className="icon-button mobile-menu" onClick={() => setSidebar(true)} aria-label="Menü öffnen"><Menu size={20}/></button>
-        <div><h1>Neuer Chat</h1><p><span className={`status-dot ${apiKey ? "" : "offline"}`}/> {apiKey ? "Bereit für deine Frage" : "API-Schlüssel erforderlich"}</p></div>
+        <div><h1>{mode === "chat" ? "Neuer Chat" : "Codex Studio"}</h1><p><span className={`status-dot ${apiKey ? "" : "offline"}`}/> {apiKey ? (mode === "chat" ? "Bereit für deine Frage" : "Bereit zum Erstellen") : "API-Schlüssel erforderlich"}</p></div>
         <div className="top-actions"><span className="model-pill"><Sparkles size={14}/> GPT-4o</span>{messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
       </header>
 
-      <div className="conversation" aria-live="polite">
+      {mode === "chat" ? <><div className="conversation" aria-live="polite">
         {messages.length === 0 ? <div className="welcome">
           <span className="welcome-mark"><Sparkles size={30}/></span>
           <span className="welcome-kicker">DEIN KI-ASSISTENT</span>
@@ -128,7 +135,12 @@ export default function Home() {
           {loading ? <button type="button" className="send-button stop" onClick={() => abortRef.current?.abort()} aria-label="Antwort stoppen"><Square size={15}/></button> : <button className="send-button" disabled={!prompt.trim()} aria-label="Nachricht senden"><ArrowUp size={20}/></button>}
         </form>
         <p className="composer-hint">KI kann Fehler machen. Prüfe wichtige Informationen.</p>
-      </footer>
+      </footer></> : <section className="builder-shell">
+        <div className="builder-intro"><span className="welcome-kicker">DEIN WEBSEITEN-BUILDER</span><h2>Beschreiben. Erstellen.<br/>Sofort ansehen.</h2><p>Schreibe, welche Seite du brauchst. Codex Studio erzeugt daraus eine komplette HTML-Webseite.</p></div>
+        <form className="builder-form" onSubmit={buildWebsite}><textarea value={builderPrompt} onChange={(event) => setBuilderPrompt(event.target.value)} placeholder="Zum Beispiel: Erstelle eine moderne Webseite für mein Café mit Speisekarte, Öffnungszeiten und Kontakt …" maxLength={4000}/><button disabled={!builderPrompt.trim() || loading}>{loading ? <Square size={16}/> : <Sparkles size={17}/>} {loading ? "Wird erstellt …" : "Webseite erstellen"}</button></form>
+        {error && <div className="error-banner builder-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Fehler schließen"><X size={16}/></button></div>}
+        {generatedHtml && <div className="builder-result"><div className="builder-toolbar"><div><button className={builderView === "preview" ? "active" : ""} onClick={() => setBuilderView("preview")}><Monitor size={15}/>Vorschau</button><button className={builderView === "code" ? "active" : ""} onClick={() => setBuilderView("code")}><Code2 size={15}/>Code</button></div><div><button onClick={() => void navigator.clipboard.writeText(generatedHtml)}><Copy size={15}/>Kopieren</button><button onClick={downloadWebsite}><Download size={15}/>HTML laden</button></div></div>{builderView === "preview" ? <iframe title="Vorschau der erstellten Webseite" sandbox="" srcDoc={generatedHtml}/> : <pre><code>{generatedHtml}</code></pre>}</div>}
+      </section>}
     </section>
     {keyDialog && <div className="key-modal-backdrop" role="presentation">
       <section className="key-dialog" role="dialog" aria-modal="true" aria-labelledby="key-title">
