@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { GEMINI_MODEL } from "../../../lib/ai-config";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -13,12 +15,14 @@ export async function POST(request: Request) {
     if (!request.headers.get("content-type")?.toLowerCase().includes("application/json")) return json({ error: "Ungültiger Inhaltstyp." }, 415);
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > 110_000) return json({ error: "Die Anfrage ist zu groß." }, 413);
-    const body = await request.json() as { apiKey?: unknown; mode?: unknown; memory?: unknown; messages?: Message[] };
+    const rawBody: unknown = await request.json();
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) return json({ error: "Bitte sende eine gültige Nachricht." }, 400);
+    const body = rawBody as { apiKey?: unknown; mode?: unknown; memory?: unknown; messages?: Message[] };
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
     const geminiKey = process.env.GEMINI_API_KEY?.trim() || "";
     if (!geminiKey && apiKey.length < 20) return json({ error: "Bitte gib einen gültigen API-Schlüssel ein." }, 401);
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
-    if (!messages.length || messages.some((m) => !["user", "assistant"].includes(m.role) || typeof m.content !== "string" || !m.content.trim() || m.content.length > 8000)) return json({ error: "Bitte sende eine gültige Nachricht." }, 400);
+    if (!messages.length || messages.some((m) => !m || !["user", "assistant"].includes(m.role) || typeof m.content !== "string" || !m.content.trim() || m.content.length > 8000) || messages[messages.length - 1].role !== "user") return json({ error: "Bitte sende eine gültige Nachricht." }, 400);
 
     const websiteMode = body.mode === "website";
     const memory = typeof body.memory === "string" ? body.memory.trim().slice(0, 4000) : "";
@@ -27,24 +31,30 @@ export async function POST(request: Request) {
       : "Du bist ein hilfreicher, präziser Assistent. Antworte standardmäßig auf Deutsch, klar gegliedert und ohne unnötige Wiederholungen.";
 
     if (geminiKey) {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
         method: "POST",
         headers: { "x-goog-api-key": geminiKey, "Content-Type": "application/json" },
         body: JSON.stringify({
           system_instruction: { parts: [{ text: `${instruction}${memory ? `\n\nDauerhafte Hinweise und Vorlieben des Nutzers:\n${memory}` : ""}` }] },
           contents: messages.map((message) => ({ role: message.role === "assistant" ? "model" : "user", parts: [{ text: message.content }] })),
-          generationConfig: { temperature: 0.7, maxOutputTokens: websiteMode ? 5000 : 1600 },
+          generationConfig: {
+            maxOutputTokens: websiteMode ? 8192 : 4096,
+            thinkingConfig: { thinkingLevel: "low" },
+          },
         }),
         signal: AbortSignal.timeout(45_000),
       });
-      const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string; status?: string } };
+      const data = await response.json() as { candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>; error?: { message?: string; status?: string } };
       if (!response.ok) {
-        const detail = typeof data.error?.message === "string" ? data.error.message.replace(/AIza[\w-]+/g, "[Schlüssel verborgen]").slice(0, 280) : "";
-        console.error("[api/chat] Gemini request failed", { status: response.status, providerStatus: data.error?.status, detail });
-        const error = response.status === 400 ? `Gemini hat die Anfrage abgelehnt.${detail ? ` ${detail}` : ""}` : response.status === 401 || response.status === 403 ? `Der Gemini-Zugriff wurde abgelehnt.${detail ? ` ${detail}` : " Bitte überprüfe den Schlüssel in Vercel."}` : response.status === 429 ? `Das kostenlose Gemini-Limit ist erreicht.${detail ? ` ${detail}` : " Bitte versuche es später erneut."}` : `Die KI konnte gerade nicht antworten (Fehler ${response.status}).${detail ? ` ${detail}` : ""}`;
+        const detail = typeof data.error?.message === "string" ? data.error.message.split(geminiKey).join("[Schlüssel verborgen]").replace(/AIza[\w-]+/g, "[Schlüssel verborgen]").slice(0, 280) : "";
+        console.error("[api/chat] Gemini request failed", { status: response.status, model: GEMINI_MODEL, detail });
+        if (response.status === 404) return json({ error: `Google stellt ${GEMINI_MODEL} für dieses Konto nicht bereit. Die Modellkonfiguration muss aktualisiert werden.`, code: "GEMINI_MODEL_UNAVAILABLE" }, 502);
+        const error = response.status === 400 ? `Gemini hat die Anfrage abgelehnt.${detail ? ` ${detail}` : ""}` : response.status === 401 || response.status === 403 ? `Der Gemini-Zugriff wurde abgelehnt.${detail ? ` ${detail}` : " Bitte überprüfe den Schlüssel in Vercel."}` : response.status === 429 ? "Das Gemini-Anfragelimit ist erreicht. Bitte versuche es später erneut; dein aktuelles Limit findest du in Google AI Studio." : `Die KI konnte gerade nicht antworten (Fehler ${response.status}).${detail ? ` ${detail}` : ""}`;
         return json({ error }, response.status === 429 ? 429 : response.status === 401 || response.status === 403 ? 401 : 502);
       }
-      let answer = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+      const candidate = data.candidates?.[0];
+      if (websiteMode && candidate?.finishReason === "MAX_TOKENS") return json({ error: "Die Webseite war für eine Antwort zu lang. Beschreibe zuerst eine kleinere Seite; dein gespeichertes Projekt bleibt erhalten." }, 502);
+      let answer = candidate?.content?.parts?.filter((part) => !part.thought).map((part) => part.text || "").join("").trim();
       if (websiteMode && answer) answer = answer.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/, "").trim();
       if (!answer) return json({ error: "Die KI hat keine Antwort geliefert." }, 502);
       return json({ answer });

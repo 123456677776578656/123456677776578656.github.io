@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Check, Code2, Copy, Download, Eye, EyeOff, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Monitor, Plus, Save, Sparkles, Square, Trash2, User, X } from "lucide-react";
+import { GEMINI_MODEL_LABEL } from "../lib/ai-config";
 
 type Message = { id: string; role: "user" | "assistant"; content: string };
 type Project = { id: string; name: string; prompt: string; html: string; updatedAt: number };
@@ -129,7 +130,7 @@ export default function Home() {
       <button className="new-chat" onClick={clearChat}><MessageSquarePlus size={18}/>Neuer Chat</button>
       <div className="mode-switch" aria-label="Arbeitsmodus"><button className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}><Sparkles size={16}/>KI-Chat</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}><Code2 size={16}/>Codex Studio</button></div>
       <div className="project-nav"><div className="project-nav-head"><span className="eyebrow">MEINE PROJEKTE</span><button onClick={newProject} aria-label="Neues Projekt"><Plus size={15}/></button></div>{projects.length ? projects.map((project) => <div className={`project-item ${currentProjectId === project.id ? "active" : ""}`} key={project.id}><button onClick={() => openProject(project)}><span>{project.name}</span><small>{new Date(project.updatedAt).toLocaleDateString("de-DE")}</small></button><button onClick={() => deleteProject(project.id)} aria-label={`${project.name} löschen`}><X size={13}/></button></div>) : <p className="project-empty">Deine erstellten Seiten erscheinen hier.</p>}</div>
-      <div className={`sidebar-foot ${serverReady || apiKey ? "connected" : ""}`}><span className="privacy-dot"/><span>{serverReady ? "Gemini sicher verbunden" : apiKey ? "Schlüssel für diesen Tab aktiv" : "Schlüssel nicht verbunden"}</span></div>
+      <div className={`sidebar-foot ${serverReady || apiKey ? "connected" : ""}`}><span className="privacy-dot"/><span>{serverReady ? "Gemini eingerichtet" : apiKey ? "Schlüssel für diesen Tab aktiv" : "Schlüssel nicht verbunden"}</span></div>
       {!serverReady && <button className="key-change" onClick={() => setKeyDialog(true)}><KeyRound size={15}/>{apiKey ? "Schlüssel wechseln" : "Schlüssel verbinden"}</button>}
       <button className="sidebar-close" onClick={() => setSidebar(false)} aria-label="Menü schließen"><X size={20}/></button>
     </aside>
@@ -139,7 +140,7 @@ export default function Home() {
       <header className="topbar">
         <button className="icon-button mobile-menu" onClick={() => setSidebar(true)} aria-label="Menü öffnen"><Menu size={20}/></button>
         <div><h1>{mode === "chat" ? "Neuer Chat" : "Codex Studio"}</h1><p><span className={`status-dot ${serverReady || apiKey ? "" : "offline"}`}/> {serverReady || apiKey ? (mode === "chat" ? "Bereit für deine Frage" : "Bereit zum Erstellen") : "API-Schlüssel erforderlich"}</p></div>
-        <div className="top-actions"><span className="model-pill"><Sparkles size={14}/> {serverReady ? "Gemini 2.5 Flash" : "GPT-4o"}</span>{messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
+        <div className="top-actions"><span className="model-pill" title={serverReady ? GEMINI_MODEL_LABEL : "GPT-4o"}><Sparkles size={14}/> {serverReady ? GEMINI_MODEL_LABEL : "GPT-4o"}</span>{messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
       </header>
 
       {mode === "chat" ? <><div className="conversation" aria-live="polite">
