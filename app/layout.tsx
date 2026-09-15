@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "KI-Chat",
-  description: "Ein sicherer, direkter KI-Chat mit serverseitiger OpenAI-Anbindung.",
+  description: "Dein KI-Assistent für Gespräche, eigene Webseiten und Bilder – mit gespeicherten Projekten und persönlicher Galerie.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

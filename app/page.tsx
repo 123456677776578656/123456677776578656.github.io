@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, Code2, Copy, Download, Eye, EyeOff, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Monitor, Plus, Save, Sparkles, Square, Trash2, User, X } from "lucide-react";
-import { GEMINI_MODEL_LABEL } from "../lib/ai-config";
+import { ArrowUp, Check, Code2, Copy, Download, Eye, EyeOff, ImagePlus, KeyRound, LockKeyhole, Menu, MessageSquarePlus, Monitor, Plus, Save, Sparkles, Square, Trash2, User, X } from "lucide-react";
+import { GEMINI_IMAGE_MODEL_LABEL, GEMINI_MODEL_LABEL } from "../lib/ai-config";
+import ImageStudio from "../components/image-studio";
 
 type Message = { id: string; role: "user" | "assistant"; content: string };
 type Project = { id: string; name: string; prompt: string; html: string; updatedAt: number };
@@ -33,7 +34,7 @@ export default function Home() {
   const [showKey, setShowKey] = useState(false);
   const [keyDialog, setKeyDialog] = useState(false);
   const [serverReady, setServerReady] = useState(false);
-  const [mode, setMode] = useState<"chat" | "builder">("chat");
+  const [mode, setMode] = useState<"chat" | "builder" | "images">("chat");
   const [builderPrompt, setBuilderPrompt] = useState("");
   const [generatedHtml, setGeneratedHtml] = useState("");
   const [builderView, setBuilderView] = useState<"preview" | "code">("preview");
@@ -111,7 +112,7 @@ export default function Home() {
     return () => controller.abort();
   }, [ask]);
 
-  function clearChat() { abortRef.current?.abort(); setMessages([]); setError(""); localStorage.removeItem("ki-chat-messages"); setSidebar(false); textareaRef.current?.focus(); }
+  function clearChat() { abortRef.current?.abort(); setMode("chat"); setMessages([]); setError(""); localStorage.removeItem("ki-chat-messages"); setSidebar(false); textareaRef.current?.focus(); }
   function connectKey(event: FormEvent) { event.preventDefault(); const clean = keyDraft.trim(); if (clean.length < 20) { setError("Der API-Schlüssel scheint unvollständig zu sein."); return; } setApiKey(clean); setKeyDraft(""); setShowKey(false); setKeyDialog(false); setError(""); window.setTimeout(() => textareaRef.current?.focus(), 0); }
   function disconnectKey() { abortRef.current?.abort(); setApiKey(""); setKeyDraft(""); setError(""); setKeyDialog(true); setSidebar(false); }
   function submit(event: FormEvent) { event.preventDefault(); void ask(prompt).catch(() => undefined); }
@@ -128,7 +129,7 @@ export default function Home() {
     <aside className={`sidebar ${sidebar ? "sidebar-open" : ""}`} aria-label="Seitennavigation">
       <div className="brand"><span className="brand-mark"><Sparkles size={19}/></span><span><strong>KI-Chat</strong><small>Persönlicher Assistent</small></span></div>
       <button className="new-chat" onClick={clearChat}><MessageSquarePlus size={18}/>Neuer Chat</button>
-      <div className="mode-switch" aria-label="Arbeitsmodus"><button className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}><Sparkles size={16}/>KI-Chat</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}><Code2 size={16}/>Codex Studio</button></div>
+      <div className="mode-switch" aria-label="Arbeitsmodus"><button className={mode === "chat" ? "active" : ""} onClick={() => { setMode("chat"); setSidebar(false); }}><Sparkles size={16}/>KI-Chat</button><button className={mode === "builder" ? "active" : ""} onClick={() => { setMode("builder"); setSidebar(false); }}><Code2 size={16}/>Codex Studio</button><button className={mode === "images" ? "active" : ""} onClick={() => { setMode("images"); setSidebar(false); }}><ImagePlus size={16}/>Bilder erstellen</button></div>
       <div className="project-nav"><div className="project-nav-head"><span className="eyebrow">MEINE PROJEKTE</span><button onClick={newProject} aria-label="Neues Projekt"><Plus size={15}/></button></div>{projects.length ? projects.map((project) => <div className={`project-item ${currentProjectId === project.id ? "active" : ""}`} key={project.id}><button onClick={() => openProject(project)}><span>{project.name}</span><small>{new Date(project.updatedAt).toLocaleDateString("de-DE")}</small></button><button onClick={() => deleteProject(project.id)} aria-label={`${project.name} löschen`}><X size={13}/></button></div>) : <p className="project-empty">Deine erstellten Seiten erscheinen hier.</p>}</div>
       <div className={`sidebar-foot ${serverReady || apiKey ? "connected" : ""}`}><span className="privacy-dot"/><span>{serverReady ? "Gemini eingerichtet" : apiKey ? "Schlüssel für diesen Tab aktiv" : "Schlüssel nicht verbunden"}</span></div>
       {!serverReady && <button className="key-change" onClick={() => setKeyDialog(true)}><KeyRound size={15}/>{apiKey ? "Schlüssel wechseln" : "Schlüssel verbinden"}</button>}
@@ -139,8 +140,8 @@ export default function Home() {
     <section className="chat-shell">
       <header className="topbar">
         <button className="icon-button mobile-menu" onClick={() => setSidebar(true)} aria-label="Menü öffnen"><Menu size={20}/></button>
-        <div><h1>{mode === "chat" ? "Neuer Chat" : "Codex Studio"}</h1><p><span className={`status-dot ${serverReady || apiKey ? "" : "offline"}`}/> {serverReady || apiKey ? (mode === "chat" ? "Bereit für deine Frage" : "Bereit zum Erstellen") : "API-Schlüssel erforderlich"}</p></div>
-        <div className="top-actions"><span className="model-pill" title={serverReady ? GEMINI_MODEL_LABEL : "GPT-4o"}><Sparkles size={14}/> {serverReady ? GEMINI_MODEL_LABEL : "GPT-4o"}</span>{messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
+        <div><h1>{mode === "chat" ? "Neuer Chat" : mode === "images" ? "Bilderstudio" : "Codex Studio"}</h1><p><span className={`status-dot ${(mode === "images" ? serverReady : serverReady || apiKey) ? "" : "offline"}`}/> {mode === "images" ? "Deine Ideen werden sichtbar" : serverReady || apiKey ? (mode === "chat" ? "Bereit für deine Frage" : "Bereit zum Erstellen") : "API-Schlüssel erforderlich"}</p></div>
+        <div className="top-actions"><span className="model-pill" title={mode === "images" ? GEMINI_IMAGE_MODEL_LABEL : serverReady ? GEMINI_MODEL_LABEL : "GPT-4o"}><Sparkles size={14}/> {mode === "images" ? GEMINI_IMAGE_MODEL_LABEL : serverReady ? GEMINI_MODEL_LABEL : "GPT-4o"}</span>{mode === "chat" && messages.length > 0 && <button className="icon-button" onClick={clearChat} aria-label="Chat löschen" title="Chat löschen"><Trash2 size={18}/></button>}</div>
       </header>
 
       {mode === "chat" ? <><div className="conversation" aria-live="polite">
@@ -167,14 +168,15 @@ export default function Home() {
           {loading ? <button type="button" className="send-button stop" onClick={() => abortRef.current?.abort()} aria-label="Antwort stoppen"><Square size={15}/></button> : <button className="send-button" disabled={!prompt.trim()} aria-label="Nachricht senden"><ArrowUp size={20}/></button>}
         </form>
         <p className="composer-hint">KI kann Fehler machen. Prüfe wichtige Informationen.</p>
-      </footer></> : <section className="builder-shell">
+      </footer></> : mode === "builder" ? <section className="builder-shell">
         <div className="builder-intro"><span className="welcome-kicker">DEIN WEBSEITEN-BUILDER</span><h2>Beschreiben. Erstellen.<br/>Sofort ansehen.</h2><p>Schreibe, welche Seite du brauchst. Codex Studio erzeugt daraus eine komplette HTML-Webseite.</p></div>
         <div className="builder-meta"><label>Projektname<input value={projectName} onChange={(event) => setProjectName(event.target.value)} maxLength={60}/></label><button onClick={() => saveProject()} disabled={!generatedHtml}><Save size={16}/>Projekt speichern</button></div>
         <form className="builder-form" onSubmit={buildWebsite}><textarea value={builderPrompt} onChange={(event) => setBuilderPrompt(event.target.value)} placeholder="Zum Beispiel: Erstelle eine moderne Webseite für mein Café mit Speisekarte, Öffnungszeiten und Kontakt …" maxLength={4000}/><button disabled={!builderPrompt.trim() || loading}>{loading ? <Square size={16}/> : <Sparkles size={17}/>} {loading ? "Wird erstellt …" : "Webseite erstellen"}</button></form>
         <section className="memory-card"><div><span className="welcome-kicker">GEDÄCHTNIS</span><h3>Was soll sich Codex merken?</h3><p>Zum Beispiel deine Lieblingsfarben, Branche, gewünschte Tonalität oder immer benötigte Bereiche.</p></div><form onSubmit={addMemory}><input value={memoryDraft} onChange={(event) => setMemoryDraft(event.target.value)} placeholder="Meine Markenfarbe ist Dunkelblau …" maxLength={300}/><button disabled={!memoryDraft.trim()}><Plus size={16}/>Merken</button></form>{memories.length > 0 && <div className="memory-list">{memories.map((memory) => <span key={memory}>{memory}<button onClick={() => setMemories((items) => items.filter((item) => item !== memory))} aria-label="Erinnerung löschen"><X size={12}/></button></span>)}</div>}</section>
         {error && <div className="error-banner builder-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Fehler schließen"><X size={16}/></button></div>}
         {generatedHtml && <div className="builder-result"><div className="builder-toolbar"><div><button className={builderView === "preview" ? "active" : ""} onClick={() => setBuilderView("preview")}><Monitor size={15}/>Vorschau</button><button className={builderView === "code" ? "active" : ""} onClick={() => setBuilderView("code")}><Code2 size={15}/>Code</button></div><div><button onClick={() => void navigator.clipboard.writeText(generatedHtml)}><Copy size={15}/>Kopieren</button><button onClick={downloadWebsite}><Download size={15}/>HTML laden</button></div></div>{builderView === "preview" ? <iframe title="Vorschau der erstellten Webseite" sandbox="" srcDoc={generatedHtml}/> : <pre><code>{generatedHtml}</code></pre>}</div>}
-      </section>}
+      </section> : null}
+      <ImageStudio active={mode === "images"} configured={serverReady} memories={memories}/>
     </section>
     {keyDialog && !serverReady && <div className="key-modal-backdrop" role="presentation">
       <section className="key-dialog" role="dialog" aria-modal="true" aria-labelledby="key-title">
