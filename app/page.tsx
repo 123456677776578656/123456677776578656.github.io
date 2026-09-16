@@ -55,7 +55,7 @@ export default function Home() {
   const activeChat = workspace.chats.find((chat) => chat.id === activeChatId) || draftChat;
   const activeProject = workspace.projects.find((project) => project.id === activeProjectId) || draftProject;
   const visibleChats = useMemo(() => { const query = search.toLocaleLowerCase("de").trim(); return workspace.chats.filter((chat) => !query || `${chat.title} ${chat.messages.map((m) => `${m.content} ${(m.attachments || []).map((a) => a.name).join(" ")}`).join(" ")}`.toLocaleLowerCase("de").includes(query)).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt); }, [workspace.chats, search]);
-  const updateChat = useCallback((chat: Chat) => { setWorkspace((value) => ({ ...value, chats: value.chats.some((item) => item.id === chat.id) ? value.chats.map((item) => item.id === chat.id ? chat : item) : [...value.chats, chat] })); }, []);
+  const updateChat = useCallback((chat: Chat, project?: Project) => { setWorkspace((value) => ({ ...value, chats: value.chats.some((item) => item.id === chat.id) ? value.chats.map((item) => item.id === chat.id ? chat : item) : [...value.chats, chat], projects: !project ? value.projects : value.projects.some((item) => item.id === project.id) ? value.projects.map((item) => item.id === project.id ? project : item) : [...value.projects, project] })); }, []);
   const snapshotChat = useCallback((chat: Chat) => { if (workspace.chats.length >= 500) { setNotice("Bitte sichere und entferne zuerst ältere Chats, bevor du eine weitere Variante erstellst."); return false; } updateChat({ ...chat, id: makeId(), title: `${chat.title.slice(0, 65)} (vor Änderung)`, pinned: false, updatedAt: Date.now() }); return true; }, [updateChat, workspace.chats.length]);
   const updateProject = useCallback((project: Project) => { setWorkspace((value) => ({ ...value, projects: value.projects.some((item) => item.id === project.id) ? value.projects.map((item) => item.id === project.id ? project : item) : [...value.projects, project] })); }, []);
   const needKey = useCallback(() => setKeyDialog(true), []);
@@ -63,6 +63,14 @@ export default function Home() {
   function switchMode(next: Mode) { if (busy) return; setMode(next); setSidebar(false); }
   function newChat() { if (busy || workspace.chats.length >= 500) return; const chat = freshChat(); setDraftChat(chat); setActiveChatId(chat.id); switchMode("chat"); }
   function newProject() { if (busy || workspace.projects.length >= 100) return; const project = freshProject(); setDraftProject(project); setActiveProjectId(project.id); switchMode("builder"); }
+  function openProject(id: string) { if (busy) return; setActiveProjectId(id); switchMode("builder"); }
+  function chatWithProject(project: Project) {
+    if (busy) return;
+    const existing = [...workspace.chats].filter((chat) => chat.websiteProjectId === project.id).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (!existing && workspace.chats.length >= 500) { setNotice("Bitte sichere und entferne zuerst einen älteren Chat."); return; }
+    const chat = existing || { ...freshChat(), title: project.name, websiteProjectId: project.id };
+    updateChat({ ...chat, websiteMode: true, updatedAt: Date.now() }); setActiveChatId(chat.id); switchMode("chat");
+  }
   function deleteChat(chat: Chat) { if (busy || !window.confirm(`„${chat.title}“ von diesem Gerät löschen? Eine heruntergeladene Sicherung bleibt erhalten.`)) return; setWorkspace((value) => ({ ...value, chats: value.chats.filter((item) => item.id !== chat.id) })); if (activeChatId === chat.id) newChat(); }
   function deleteProject(project: Project) { if (busy || !window.confirm(`Projekt „${project.name}“ einschließlich gespeicherter Versionen löschen?`)) return; setWorkspace((value) => ({ ...value, projects: value.projects.filter((item) => item.id !== project.id) })); if (activeProjectId === project.id) newProject(); }
   function connectKey(event: FormEvent) { event.preventDefault(); const key = keyDraft.trim(); if (key.length < 20) { setKeyError("Der API-Schlüssel scheint unvollständig zu sein."); return; } setApiKey(key); setKeyDraft(""); setShowKey(false); setKeyDialog(false); setKeyError(""); }
@@ -89,8 +97,8 @@ export default function Home() {
       {storageError && <div className="workspace-storage-error" role="alert">{storageError}<button onClick={() => switchMode("settings")} disabled={busy}>Zur Sicherung</button></div>}
       {notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")} aria-label="Hinweis schließen"><X size={14}/></button></div>}
       <div className="workspace-body">
-        {mode === "chat" && <ChatStudio key={activeChat.id} chat={activeChat} configured={serverReady} apiKey={apiKey} settings={workspace.settings} memories={workspace.memories} onChange={updateChat} onSnapshot={snapshotChat} onNeedKey={needKey} onRemember={remember} onBusy={setBusy}/>}
-        {mode === "builder" && <WebsiteStudio key={activeProject.id} project={activeProject} onChange={updateProject} onBusy={setBusy} onNeedKey={needKey} configured={serverReady} apiKey={apiKey} memories={workspace.memories} settings={workspace.settings}/>}
+        {mode === "chat" && <ChatStudio key={activeChat.id} chat={activeChat} projects={workspace.projects} configured={serverReady} apiKey={apiKey} settings={workspace.settings} memories={workspace.memories} onChange={updateChat} onSnapshot={snapshotChat} onOpenProject={openProject} onNeedKey={needKey} onRemember={remember} onBusy={setBusy}/>}
+        {mode === "builder" && <WebsiteStudio key={activeProject.id} project={activeProject} onChange={updateProject} onChat={() => chatWithProject(activeProject)} onBusy={setBusy} onNeedKey={needKey} configured={serverReady} apiKey={apiKey} memories={workspace.memories} settings={workspace.settings}/>}
         <ImageStudio active={mode === "images"} configured={serverReady} memories={workspace.settings.memoryEnabled ? workspace.memories : []}/>
         {mode === "settings" && <SettingsPanel key={`settings-${memoryVersion}`} workspace={workspace} onSettings={(settings) => setWorkspace((value) => ({ ...value, settings }))} onMemories={(memories) => setWorkspace((value) => ({ ...value, memories }))} onImport={importWorkspace} configured={serverReady} memoryDraft={memoryDraft} onDraftConsumed={() => setMemoryDraft("")}/>}
       </div>

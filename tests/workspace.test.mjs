@@ -54,3 +54,20 @@ test("stored assistant links and artifacts are validated before rendering", () =
   assert.equal(result.chats[0].messages[0].sources[0].url, "https://example.com/");
   assert.equal(result.chats[0].messages[0].artifacts.length, 0);
 });
+
+test("website snapshots and links survive backup import without targeting original projects", () => {
+  const { model } = setup();
+  const website = { projectId: "p1", name: "Café", html: "<!doctype html><html><body>Café</body></html>" };
+  const data = model.parseWorkspace({ ...model.EMPTY_WORKSPACE, projects: [{ id: "p1", name: "Café", html: website.html, prompt: "Café", updatedAt: 1 }], chats: [{ id: "c1", title: "Webseite", updatedAt: 1, websiteMode: true, websiteProjectId: "p1", messages: [{ id: "u1", role: "user", content: "Baue meine Seite", websiteRequest: true }, { id: "a1", role: "assistant", content: "Fertig", website: { ...website, apiKey: "must-disappear" } }] }] });
+  assert.equal(JSON.stringify(data).includes("must-disappear"), false);
+  const merged = model.mergeWorkspace(data, data);
+  const imported = merged.chats[0];
+  assert.equal(imported.websiteMode, true); assert.equal(imported.messages[0].websiteRequest, true);
+  assert.notEqual(imported.websiteProjectId, "p1");
+  assert.equal(imported.messages[1].website.projectId, imported.websiteProjectId);
+  assert.equal(merged.projects[0].id, imported.websiteProjectId);
+  assert.equal(imported.messages[1].website.html, website.html);
+  assert.equal(merged.chats[1].websiteProjectId, "p1");
+  const invalid = model.parseWorkspace({ ...data, chats: [{ ...data.chats[0], messages: [{ id: "a1", role: "assistant", content: "Fertig", website: { ...website, html: "x".repeat(250001) } }] }] });
+  assert.equal(invalid.chats[0].messages[0].website, undefined);
+});

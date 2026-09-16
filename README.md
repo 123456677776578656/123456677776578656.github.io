@@ -1,5 +1,13 @@
 # KI-Chat
 
+## Webseiten direkt im Chat
+
+Klicke unter dem Eingabefeld auf **Webseite** oder wähle den Webseitenvorschlag im neuen Chat. Beschreibe die gewünschte Seite und sende deine Nachricht. Die Antwort enthält eine interaktive Vorschau, eine Codeansicht, eine Handyansicht und den HTML-Download. Weitere Nachrichten in diesem Modus bearbeiten dieselbe Webseite; mit dem X im Projektstreifen wechselst du zurück zum normalen Chat.
+
+Jede fertige Seite erscheint automatisch unter **Meine Projekte**. Chat und Projekt werden gemeinsam auf diesem Gerät gespeichert. Frühere Entwürfe bleiben im Chat erhalten, zusätzlich hält das Studio bis zu acht Projektversionen vor. Vom Studio gelangst du mit **Im Chat bearbeiten** zurück zum passenden Gespräch. Änderungen an alten Nachrichten und neu angeforderte fertige Antworten erzeugen eigene Projektvarianten, ohne die bisherige Webseite zu überschreiben.
+
+Die Vorschau läuft in einem isolierten iframe und veröffentlicht die generierte Seite nicht automatisch. Unvollständige Antworten, Fehler und Abbrüche ersetzen keinen gespeicherten Projektstand. Eine Sicherung unter Einstellungen enthält auch die Webseiten im Chat und ihre Projektzuordnung. Es gibt weiterhin keine geräteübergreifende Synchronisation.
+
 Eine responsive KI-Chat-Webseite mit Codex Studio, Bilderstudio, gespeicherten Projekten und serverseitiger Gemini-Verbindung.
 
 ## Assistent und Arbeitsplatz
